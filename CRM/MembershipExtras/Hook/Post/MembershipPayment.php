@@ -1,5 +1,7 @@
 <?php
 
+use CRM_MembershipExtras_SettingsManager as SettingsManager;
+
 /**
  * Post processes membership payments after creation or update.
  */
@@ -80,6 +82,7 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
   public function postProcess() {
     if ($this->operation == 'create') {
       $this->fixRecurringLineItemMembershipReferences();
+      $this->updateMembershipStatusBasedOnPaymentMethod();
     }
   }
 
@@ -151,6 +154,46 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
     }
 
     return [];
+  }
+
+  private function updateMembershipStatusBasedOnPaymentMethod() {
+    $paymentMethodId = $this->contribution['payment_instrument_id'];
+    $paymentMethodsThatAlwaysActivateMemberships = SettingsManager::getPaymentMethodsThatAlwaysActivateMemberships();
+    if (in_array($paymentMethodId, $paymentMethodsThatAlwaysActivateMemberships)) {
+      $this->updateAllRelatedMembershipsStatusToCurrent();
+    }
+  }
+
+  private function updateAllRelatedMembershipsStatusToCurrent() {
+    $jointMembershipIds = $this->getJointMembershipIds();
+    $membershipsToUpdateIds[] = $this->membershipPayment->membership_id;
+
+    foreach ($membershipsToUpdateIds as $membershipsId) {
+      civicrm_api3('Membership', 'create', [
+        'id' => $membershipsId,
+        'status_id' => 'Current',
+      ]);
+    }
+  }
+
+  private function getJointMembershipIds() {
+    $jointMemberships = civicrm_api3('Membership', 'get', [
+      'sequential' => 1,
+      'return' => ['id'],
+      'owner_membership_id' => $this->membershipPayment->membership_id,
+      'options' => ['limit' => 0],
+    ]);
+
+    if ($jointMemberships['count'] < 1) {
+      return [];
+    }
+
+    $jointMembershipIds = [];
+    foreach ($jointMemberships['values'] as $jointMembership) {
+      $jointMembershipIds[] = $jointMembership['id'];
+    }
+
+    return $jointMembershipIds;
   }
 
 }
