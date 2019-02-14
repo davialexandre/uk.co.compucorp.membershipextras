@@ -244,7 +244,7 @@ abstract class CRM_MembershipExtras_Job_OfflineAutoRenewal_PaymentPlan {
       }
 
       $existingMembershipID = $this->getExistingMembershipIDForLineItem($lineItem, $priceFieldValue);
-      CRM_MembershipExtras_BAO_MembershipPeriod::createPeriodForMembership($existingMembershipID);
+      //CRM_MembershipExtras_BAO_MembershipPeriod::createPeriodForMembership($existingMembershipID);
     }
   }
 

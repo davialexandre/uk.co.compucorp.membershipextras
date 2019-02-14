@@ -23,7 +23,7 @@ class CRM_MembershipExtras_Hook_PostProcess_MembershipPeriodCreator {
   }
 
   public function postProcess() {
-    CRM_MembershipExtras_BAO_MembershipPeriod::createPeriodForMembership($this->form->_id);
+    //CRM_MembershipExtras_BAO_MembershipPeriod::createPeriodForMembership($this->form->_id);
   }
 
 }

@@ -33,7 +33,7 @@ class CRM_MembershipExtras_Hook_PostProcess_ContributionConfirm {
     );
 
     if (!empty($membershipID)) {
-      CRM_MembershipExtras_BAO_MembershipPeriod::createPeriodForMembership($membershipID);
+      //CRM_MembershipExtras_BAO_MembershipPeriod::createPeriodForMembership($membershipID);
     }
   }
 
