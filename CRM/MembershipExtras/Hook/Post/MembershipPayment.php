@@ -80,6 +80,7 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
   public function postProcess() {
     if ($this->operation == 'create') {
       $this->fixRecurringLineItemMembershipReferences();
+      $this->linkPaymentToMembershipPeriod();
     }
   }
 
@@ -151,6 +152,31 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
     }
 
     return [];
+  }
+
+  private function linkPaymentToMembershipPeriod() {
+    $membershipId = $this->membershipPayment->membership_id;
+    $lastMembershipPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastPeriod($membershipId);
+
+    if (empty($lastMembershipPeriod['entity_id'])) {
+      if(!empty($this->recurringContribution)) {
+        // todo : only perform once for payment plan conts
+        $periodNewParams = [
+          'id' => $lastMembershipPeriod['id'],
+          'payment_entity_table' => 'civicrm_contribution_recur',
+          'entity_id' => $this->recurringContribution['id'],
+        ];
+      } else {
+        $periodNewParams = [
+          'id' => $lastMembershipPeriod['id'],
+          'payment_entity_table' => 'civicrm_contribution',
+          'entity_id' => $this->contribution['id'],
+        ];
+      }
+
+      $membershipPeriod = new CRM_MembershipExtras_BAO_MembershipPeriod();
+      $membershipPeriod::create($periodNewParams);
+    }
   }
 
 }

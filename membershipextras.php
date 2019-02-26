@@ -227,9 +227,27 @@ function membershipextras_civicrm_post($op, $objectName, $objectId, &$objectRef)
     $lineItemPostHook->postProcess();
   }
 
+  if ($objectName == 'Membership' && $op == 'create') {
+    $membershipPaymentPostHook = new CRM_MembershipExtras_Hook_Post_MembershipCreate($objectRef);
+    $membershipPaymentPostHook->process();
+  }
+
   if ($objectName == 'MembershipPayment') {
     $membershipPaymentPostHook = new CRM_MembershipExtras_Hook_Post_MembershipPayment($op, $objectId, $objectRef);
     $membershipPaymentPostHook->postProcess();
+  }
+
+  if ($objectName == 'Contribution' && $op == 'edit') {
+    if (!empty($objectRef->contribution_recur_id)) {
+      $mPeriod = new CRM_MembershipExtras_BAO_MembershipPeriod();
+      $mPeriod->entity_id = $objectRef->id;
+      $mPeriod->payment_entity_table = 'civicrm_contribution';
+      if ($mPeriod->find(TRUE)) {
+        $mPeriod->entity_id = $objectRef->contribution_recur_id;
+        $mPeriod->payment_entity_table = 'civicrm_contribution_recur';
+        $mPeriod->save();
+      }
+    }
   }
 }
 

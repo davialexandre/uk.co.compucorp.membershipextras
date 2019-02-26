@@ -43,13 +43,23 @@ class CRM_MembershipExtras_BAO_MembershipPeriod extends CRM_MembershipExtras_DAO
       $entityId = self::calculateEntityIDForContribution($lastPayment);
     }
 
+    $membershipStatuses = CRM_Member_PseudoConstant::membershipStatus();
+    $pendingStatusId = array_search('Pending', $membershipStatuses);
+    $cancelledStatusId = array_search('Cancelled', $membershipStatuses);
+    $statusId = $membership['status_id'];
+
+    $isPeriodActivated = TRUE;
+    if (in_array($statusId, [$pendingStatusId, $cancelledStatusId])) {
+      $isPeriodActivated = FALSE;
+    }
+
     return self::create([
       'membership_id' => $membershipID,
       'start_date' => self::calculateStartDate($membership, $lastActivePeriod),
       'end_date' => $membership['end_date'],
       'payment_entity_table' => $paymentEntityTable,
       'entity_id' => $entityId,
-      'is_active' => TRUE,
+      'is_active' => $isPeriodActivated,
     ]);
   }
 
@@ -94,7 +104,29 @@ class CRM_MembershipExtras_BAO_MembershipPeriod extends CRM_MembershipExtras_DAO
   public static function getLastActivePeriod($membershipID) {
     $membershipPeriod = new self();
     $membershipPeriod->membership_id = $membershipID;
+    $membershipPeriod->is_active = TRUE;
     $membershipPeriod->orderBy('end_date DESC');
+    $membershipPeriod->limit(1);
+    if ($membershipPeriod->find(TRUE) > 0) {
+      return $membershipPeriod->toArray();
+    }
+
+    return [];
+  }
+
+  /**
+   * Returns an array with the information for the latest period for the
+   * given membership.
+   *
+   * @param int $membershipID
+   *
+   * @return array
+   */
+  public static function getLastPeriod($membershipID) {
+    $membershipPeriod = new self();
+    $membershipPeriod->membership_id = $membershipID;
+    $membershipPeriod->orderBy('end_date DESC');
+    $membershipPeriod->limit(1);
     if ($membershipPeriod->find(TRUE) > 0) {
       return $membershipPeriod->toArray();
     }

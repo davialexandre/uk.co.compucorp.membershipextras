@@ -47,6 +47,8 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
     if ($isMembershipRenewal && $isPaymentPlanPayment) {
       $this->extendPendingPaymentPlanMembershipOnRenewal();
     }
+
+    $this->updateMembershipPeriod();
   }
 
   /**
@@ -173,6 +175,166 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
     }
 
     $this->params['end_date'] = MembershipEndDateCalculator::calculate($this->id);
+  }
+
+  private function updateMembershipPeriod() {
+    $membershipData = civicrm_api3('Membership', 'get', [
+      'id' => $this->id,
+      'sequential' => 1,
+    ]);
+
+    if (empty($this->params['join_date'])) {
+      $membershipJoinDate = date('Ymd', strtotime($membershipData['values'][0]['join_date']));
+    } else {
+      $membershipJoinDate = date('Ymd', strtotime($this->params['join_date']));
+    }
+
+    if (!empty($this->params['end_date'])) {
+      $membershipEndDate = date('Ymd', strtotime($this->params['end_date']));
+    }
+    elseif(!empty($this->params['membership_end_date'])) {
+      $membershipEndDate = date('Ymd', strtotime($this->params['membership_end_date']));
+    }
+    else {
+      $membershipEndDate = date('Ymd', strtotime($membershipData['values'][0]['end_date']));
+    }
+
+    $lastActivatedPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastActivePeriod($this->id);
+
+    if (empty($lastActivatedPeriod)) {
+      $membershipStatuses = CRM_Member_PseudoConstant::membershipStatus();
+      $pendingStatusId = array_search('Pending', $membershipStatuses);
+      $cancelledStatusId = array_search('Cancelled', $membershipStatuses);
+
+      $currentMembershipStatusId = civicrm_api3('Membership', 'getvalue', [
+        'return' => 'status_id',
+        'id' => $this->id,
+      ]);
+      $newMembershipStatusId = $this->params['status_id'];
+
+      if (in_array($currentMembershipStatusId, [$pendingStatusId, $cancelledStatusId]) && !empty($newMembershipStatusId) && !in_array($newMembershipStatusId, [$pendingStatusId, $cancelledStatusId])) {
+        $lastPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastPeriod($this->id);
+       CRM_MembershipExtras_BAO_MembershipPeriod::create(['id' => $lastPeriod['id'], 'is_active' => TRUE]);
+      }
+    }
+
+    $firstActivatedPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getFirstActivePeriod($this->id);
+    $lastActivatedPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastActivePeriod($this->id);
+    if (empty($firstActivatedPeriod) || empty($lastActivatedPeriod)) {
+      return;
+    }
+
+
+    $firstActivatedPeriodStartDate = date('Ymd', strtotime($firstActivatedPeriod['start_date']));
+    $firstActivatedPeriodEndDate =  date('Ymd', strtotime($firstActivatedPeriod['end_date']));
+    $lastActivatedPeriodStartDate =  date('Ymd', strtotime($lastActivatedPeriod['start_date']));
+    $lastActivatedPeriodEndDate =  date('Ymd', strtotime($lastActivatedPeriod['end_date']));
+
+    if ($membershipEndDate < $lastActivatedPeriodStartDate) {
+      throw new CRM_Core_Exception('Wrong Date 1');
+    }
+
+    if ($membershipJoinDate > $firstActivatedPeriodEndDate) {
+      throw new CRM_Core_Exception('Wrong Date 2');
+    }
+
+    if ($membershipEndDate > $lastActivatedPeriodStartDate && $membershipEndDate < $lastActivatedPeriodEndDate) {
+      $lastActivatedPeriodParams = [];
+      $lastActivatedPeriodParams['id'] = $lastActivatedPeriod['id'];
+      $lastActivatedPeriodParams['end_date'] = $membershipEndDate;
+      CRM_MembershipExtras_BAO_MembershipPeriod::create($lastActivatedPeriodParams);
+    }
+
+    if ($membershipJoinDate < $firstActivatedPeriodEndDate && $membershipJoinDate > $firstActivatedPeriodStartDate) {
+      $firstActivatedPeriodParams = [];
+      $firstActivatedPeriodParams['id'] = $firstActivatedPeriod['id'];
+      $firstActivatedPeriodParams['start_date'] = $membershipJoinDate;
+      CRM_MembershipExtras_BAO_MembershipPeriod::create($firstActivatedPeriodParams);
+    }
+
+    if ($membershipEndDate > $lastActivatedPeriodEndDate) {
+      $newPeriodParams = [];
+      $newPeriodParams['membership_id'] = $this->id;
+
+      $endOfLastActivePeriod = new DateTime($lastActivatedPeriod['end_date']);
+      $endOfLastActivePeriod->add(new DateInterval('P1D'));
+      $endOfLastActivePeriodDate = $endOfLastActivePeriod->format('Y-m-d');
+      $todayDate = (new DateTime())->format('Y-m-d');
+      $newPeriodStartDate = $endOfLastActivePeriodDate;
+      $renewalDate = CRM_Utils_Request::retrieve('renewal_date', 'String');
+      if ($renewalDate) {
+        $renewalDate = (new DateTime($renewalDate))->format('Y-m-d');
+      } else {
+        $renewalDate = $todayDate;
+      }
+
+      if ($renewalDate > $endOfLastActivePeriodDate) {
+        $newPeriodStartDate = $renewalDate;
+      }
+
+      $newPeriodParams['start_date'] = $newPeriodStartDate;
+
+      $newPeriodParams['end_date'] = $membershipEndDate;
+
+      $membershipStatuses = CRM_Member_PseudoConstant::membershipStatus();
+      $pendingStatusId = array_search('Pending', $membershipStatuses);
+      $cancelledStatusId = array_search('Cancelled', $membershipStatuses);
+      $statusId = $this->params['status_id'];
+      $isPeriodActivated = TRUE;
+      if (!empty($statusId) && in_array($statusId, [$pendingStatusId, $cancelledStatusId])) {
+        $isPeriodActivated = FALSE;
+      }
+      $newPeriodParams['is_active'] = $isPeriodActivated;
+
+      if ($this->paymentContributionID) {
+        $paymentContribution = civicrm_api3('Contribution', 'get', [
+          'sequential' => 1,
+          'id' => $this->paymentContributionID,
+          'return' => ['id', 'contribution_recur_id'],
+        ]);
+
+        if (!empty($paymentContribution['values'][0]['contribution_recur_id'])) {
+          $newPeriodParams['payment_entity_table'] = 'civicrm_contribution_recur';
+          $newPeriodParams['entity_id'] = $paymentContribution['values'][0]['contribution_recur_id'];
+        } else {
+          $newPeriodParams['payment_entity_table'] = 'civicrm_contribution';
+          $newPeriodParams['entity_id'] = $this->paymentContributionID;
+        }
+      }
+
+      CRM_MembershipExtras_BAO_MembershipPeriod::create($newPeriodParams);
+    }
+
+    if ($membershipJoinDate < $firstActivatedPeriodStartDate) {
+      $newPeriodParams = [];
+      $newPeriodParams['membership_id'] = $this->id;
+      $newPeriodParams['start_date'] = $membershipJoinDate;
+
+      $startOfFirstActivePeriod = new DateTime($firstActivatedPeriod['start_date']);
+      $startOfFirstActivePeriod->sub(new DateInterval('P1D'));
+      $newPeriodParams['end_date'] = $startOfFirstActivePeriod->format('Y-m-d'); // todo : does not work, fix
+
+      $newPeriodParams['is_active'] = TRUE; // TODO : I don't think in this case the period can be inactive
+
+      if ($this->paymentContributionID) {
+        $paymentContribution = civicrm_api3('Contribution', 'get', [
+          'sequential' => 1,
+          'id' => $this->paymentContributionID,
+          'return' => ['id', 'contribution_recur_id'],
+        ]);
+
+        if (!empty($paymentContribution['values'][0]['contribution_recur_id'])) {
+          $newPeriodParams['payment_entity_table'] = 'civicrm_contribution_recur';
+          $newPeriodParams['entity_id'] = $paymentContribution['values'][0]['contribution_recur_id'];
+        } else {
+          $newPeriodParams['payment_entity_table'] = 'civicrm_contribution';
+          $newPeriodParams['entity_id'] = $this->paymentContributionID;
+        }
+      }
+
+
+      CRM_MembershipExtras_BAO_MembershipPeriod::create($newPeriodParams);
+    }
   }
 
 }
