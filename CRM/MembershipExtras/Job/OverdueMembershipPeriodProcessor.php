@@ -13,19 +13,37 @@ class CRM_MembershipExtras_Job_OverdueMembershipPeriodProcessor {
    * @throws \Exception
    */
   public function run() {
-    $membershipPeriodDao = $this->getMembershipsPeriodsWithOverduePayment();
-    $errors = [];
-    while ($membershipPeriodDao->fetch()) {
-      try {
-        $this->disableMembershipPeriod($membershipPeriodDao->membership_period_id);
-      } catch (Exception $e) {
-        $errors[] = "An error occurred disabling an overdue membership period with id({$membershipPeriodDao->membership_period_id}): " . $e->getMessage();
-      }
+    $actions = [
+      [
+        'action' => 'disable',
+        'days' => CRM_MembershipExtras_SettingsManager::getDaysToDisableMemPeriodsWithOverduePayment(),
+      ], [
+        'action' => 'adjustEndDate',
+        'days' => CRM_MembershipExtras_SettingsManager::getDaysToAdjustEndDateForMemPeriodsWithOverduePayment(),
+      ]
+    ];
 
-      if (count($errors) > 0) {
-        throw new Exception("Errors found while processing periods: " . implode('; ', $errors));
+    $errors = [];
+    $transaction = new CRM_Core_Transaction();
+    foreach ($actions as $action) {
+      $overdueMembershipPeriodDao = $this->getMemPeriodsWithOverduePayment($action['days']);
+      while ($overdueMembershipPeriodDao->fetch()) {
+        try {
+          $this->updateMembershipPeriod($overdueMembershipPeriodDao->membership_period_id, $action['action']);
+        } catch (Exception $e) {
+          $errors[] = "An error occurred disabling an overdue membership period with id({$membershipPeriodDao->membership_period_id}): " . $e->getMessage();
+        }
       }
     }
+
+    if (count($errors) > 0) {
+      $transaction->rollback();
+      $message = "Errors found while processing periods: " . implode('; ', $errors);
+
+      throw new Exception($message);
+    }
+    
+    $transaction->commit();
 
     return TRUE;
   }
@@ -34,14 +52,13 @@ class CRM_MembershipExtras_Job_OverdueMembershipPeriodProcessor {
    * @return CRM_Core_DAO
    *  Object that point to result set of IDs of overdue membership periods
    */
-  private function getMembershipsPeriodsWithOverduePayment() {
+  private function getMemPeriodsWithOverduePayment($overdueDays) {
     $contributionStatusesNameMap = ContributionUtilities::getContributionStatusesNameMap();
     $completedContributionStatusID = $contributionStatusesNameMap['Completed'];
-    
-    $daysToDisableMP = CRM_MembershipExtras_SettingsManager::getDaysToDisableMembershipPeriodsWithOverduePayment();
-    $date = new DateTime();
-    $date->sub(new DateInterval("P{$daysToDisableMP}D"));
-    $maxReceiveDate = $date->format('Y-m-d H:i:s');
+
+    $dateTime = new DateTime();
+    $dateTime->sub(new DateInterval("P{$overdueDays}D"));
+    $maxReceiveDate = $dateTime->format('Y-m-d H:i:s');
 
     $query = "
     (
@@ -77,11 +94,24 @@ class CRM_MembershipExtras_Job_OverdueMembershipPeriodProcessor {
    * Disables a membership period
    * 
    * @param int $membershipPeriodID 
+   * @param string $action
    */
-  private function disableMembershipPeriod($membershipPeriodID) {
+  private function updateMembershipPeriod($membershipPeriodID, $action) {
     $membershipPeriodBao = new CRM_MembershipExtras_BAO_MembershipPeriod();
     $membershipPeriodBao->id = $membershipPeriodID;
-    $membershipPeriodBao->is_active = 0;
+    switch ($action) {
+      case 'disable':
+        $membershipPeriodBao->is_active = 0;
+        break;
+      case 'adjustEndDate':
+        $dateTime = new DateTime();
+        $dateTime->add(new DateInterval("P{$overdueDays}D"));
+        $newEndDate = $dateTime->format('Y-m-d H:i:s');
+        $membershipPeriodBao->end_date = $newEndDate;
+        break;
+      default:
+        break;
+    }
     $membershipPeriodBao->save();
   }
 }
