@@ -44,6 +44,21 @@ class CRM_MembershipExtras_SettingsManager {
     
     return $daysToDisableMP;
   }
+  
+  /**
+   * Returns the number of 'Days to adjust end date for membership period with overdue payment'
+   * setting.
+   *
+   * @return int
+   */
+  public static function getDaysToAdjustEndDateForMembershipPeriodsWithOverduePayment() {
+    $daysToUpdateMP = self::getSettingValue('membershipextras_paymentplan_days_to_adjust_end_date_for_membership_period_with_overdue_payment');
+    if (empty($daysToUpdateMP)) {
+      return 0;
+    }
+    
+    return $daysToUpdateMP;
+  }
 
   public static function getCustomFieldsIdsToExcludeForAutoRenew() {
     $customGroupsIdsToExcludeForAutoRenew = self::getSettingValue('membershipextras_customgroups_to_exclude_for_autorenew');
