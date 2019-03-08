@@ -72,5 +72,18 @@ return [
     'is_required' => FALSE,
     'description' => 'Days after a payment is overdue that a membership period should become inactive',
     'help_text' => 'Days after a payment is overdue that a membership period should become inactive',
+  ],
+  'membershipextras_paymentplan_days_to_adjust_end_date_for_membership_period_with_overdue_payment' => [
+    'name' => 'membershipextras_paymentplan_days_to_adjust_end_date_for_membership_period_with_overdue_payment',
+    'group_name' => 'MembershipExtras: Payment Plan',
+    'group' => 'membershipextras_paymentplan',
+    'type' => 'Integer',
+    'quick_form_type' => 'Element',
+    'add' => '4.7',
+    'title' => 'Days to adjust end date for membership period with overdue payment',
+    'html_type' => 'text',
+    'is_required' => FALSE,
+    'description' => "Days after a payment is overdue that a membership period's end date should be adjusted",
+    'help_text' => "Days after a payment is overdue that a membership period's end date should be adjusted",
   ]
 ];
