@@ -32,7 +32,13 @@ class CRM_MembershipExtras_Hook_PostProcess_MembershipOfflineAutoRenewProcessor{
    * to handle offline auto-renewal.
    */
   public function postProcess() {
-    if (!$this->isOfflineAutoRenewMembership() || $this->membershipIsAlreadyAutoRenew()) {
+    if (!$this->isOfflineAutoRenewMembership()) {
+      return;
+    }
+
+    if ($this->membershipIsAlreadyAutoRenew()) {
+      $recurContributionID = $this->getMembershipLastRecurContributionID();
+      $this->updateContributionRecurringContribution($recurContributionID);
       return;
     }
 

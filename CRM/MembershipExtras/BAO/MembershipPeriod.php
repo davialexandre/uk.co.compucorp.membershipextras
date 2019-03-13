@@ -43,23 +43,13 @@ class CRM_MembershipExtras_BAO_MembershipPeriod extends CRM_MembershipExtras_DAO
       $entityId = self::calculateEntityIDForContribution($lastPayment);
     }
 
-    $membershipStatuses = CRM_Member_PseudoConstant::membershipStatus();
-    $pendingStatusId = array_search('Pending', $membershipStatuses);
-    $cancelledStatusId = array_search('Cancelled', $membershipStatuses);
-    $statusId = $membership['status_id'];
-
-    $isPeriodActivated = TRUE;
-    if (in_array($statusId, [$pendingStatusId, $cancelledStatusId])) {
-      $isPeriodActivated = FALSE;
-    }
-
     return self::create([
       'membership_id' => $membershipID,
       'start_date' => self::calculateStartDate($membership, $lastActivePeriod),
       'end_date' => $membership['end_date'],
       'payment_entity_table' => $paymentEntityTable,
       'entity_id' => $entityId,
-      'is_active' => $isPeriodActivated,
+      'is_active' => TRUE,
     ]);
   }
 

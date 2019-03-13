@@ -42,11 +42,13 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
       $this->preventExtendingPaymentPlanMembership();
     }
 
-    $isPaymentPlanPayment = $this->isPaymentPlanWithMoreThanOneInstallment();
+    // todo : remove this after confirming that it is good to be removed
+    // ..todo : also ensure other rnew locations does not extend ??
+    /*$isPaymentPlanPayment = $this->isPaymentPlanWithMoreThanOneInstallment();
     $isMembershipRenewal = CRM_Utils_Request::retrieve('action', 'String') & CRM_Core_Action::RENEW;
     if ($isMembershipRenewal && $isPaymentPlanPayment) {
       $this->extendPendingPaymentPlanMembershipOnRenewal();
-    }
+    }*/
 
     $this->updateMembershipPeriod();
   }
@@ -64,26 +66,26 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
    * so the membership gets only extended once when you renew it.
    */
   public function preventExtendingPaymentPlanMembership() {
-    if ($this->isOfflinePaymentPlanMembership()) {
+    if ($this->isOfflineNonPendingPaymentPlanMembership()) {
       unset($this->params['end_date']);
     }
   }
 
   /**
    * Determines if the payment for a membership
-   * subscription is offline (pay later) and paid
+   * subscription is offline (pay later), non pending and paid
    * as payment plan.
    *
    * @return bool
    */
-  private function isOfflinePaymentPlanMembership() {
+  private function isOfflineNonPendingPaymentPlanMembership() {
     $recContributionID = $this->getPaymentRecurringContributionID();
 
     if ($recContributionID === NULL) {
       return FALSE;
     }
 
-    return $this->isOfflinePaymentPlanContribution($recContributionID);
+    return $this->isOfflineNonPendingPaymentPlanContribution($recContributionID);
   }
 
   /**
@@ -94,7 +96,7 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
    * @param $recurringContributionID
    * @return bool
    */
-  private function isOfflinePaymentPlanContribution($recurringContributionID) {
+  private function isOfflineNonPendingPaymentPlanContribution($recurringContributionID) {
     $recurringContribution = civicrm_api3('ContributionRecur', 'get', [
       'sequential' => 1,
       'id' => $recurringContributionID,
@@ -106,7 +108,10 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
     $isOfflineContribution = empty($recurringContribution['payment_processor_id']) ||
       in_array($recurringContribution['payment_processor_id'], $manualPaymentProcessors);
 
-    if ($isOfflineContribution && $isPaymentPlanRecurringContribution) {
+    $pendingContributionStatusId = array_search('Pending', CRM_Contribute_PseudoConstant::contributionStatus(NULL, 'name'));
+    $isNonPending = !($recurringContribution['contribution_status_id'] == $pendingContributionStatusId);
+
+    if ($isOfflineContribution && $isPaymentPlanRecurringContribution && $isNonPending) {
       return TRUE;
     }
 
@@ -199,24 +204,43 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
       $membershipEndDate = date('Ymd', strtotime($membershipData['values'][0]['end_date']));
     }
 
-    $lastActivatedPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastActivePeriod($this->id);
+    // done to activate the inactive period when recording a contribution
+    $checkPeriod = new CRM_MembershipExtras_DAO_MembershipPeriod();
+    $checkPeriodedate = date('Y-m-d', strtotime($membershipEndDate)) . ' 00:00:00';
+    $checkPeriod->is_active = FALSE;
+    $checkPeriod->membership_id = $this->id;
+    $checkPeriod->whereAdd('end_date = "' . $checkPeriodedate . '"');
+    $checkPeriod->whereAdd('entity_id IS NOT NULL');
+    $checkPeriod->orderBy('id desc');
+    $checkPeriod->limit(1);
+    if($checkPeriod->find(TRUE)) {
+      if ($checkPeriod->payment_entity_table == 'civicrm_contribution') {
+        $checkPeriodContData = civicrm_api3('Contribution', 'get', [
+          'sequential' => 1,
+          'id' => $checkPeriod->entity_id,
+          'return' => ['contribution_status_id'],
+        ])['values'][0];
+        if ($checkPeriodContData['contribution_status'] == 'Completed') {
+          $checkPeriod->is_active = TRUE;
+          $checkPeriod->save();
+        }
+      } elseif($checkPeriod->payment_entity_table == 'civicrm_contribution_recur') {
+        $checkPeriodContData = civicrm_api3('Contribution', 'get', [
+          'sequential' => 1,
+          'id' => $this->paymentContributionID,
+          'contribution_recur_id' => $checkPeriod->entity_id,
+          'return' => ['contribution_status_id'],
+        ]);
 
-    if (empty($lastActivatedPeriod)) {
-      $membershipStatuses = CRM_Member_PseudoConstant::membershipStatus();
-      $pendingStatusId = array_search('Pending', $membershipStatuses);
-      $cancelledStatusId = array_search('Cancelled', $membershipStatuses);
-
-      $currentMembershipStatusId = civicrm_api3('Membership', 'getvalue', [
-        'return' => 'status_id',
-        'id' => $this->id,
-      ]);
-      $newMembershipStatusId = $this->params['status_id'];
-
-      if (in_array($currentMembershipStatusId, [$pendingStatusId, $cancelledStatusId]) && !empty($newMembershipStatusId) && !in_array($newMembershipStatusId, [$pendingStatusId, $cancelledStatusId])) {
-        $lastPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastPeriod($this->id);
-       CRM_MembershipExtras_BAO_MembershipPeriod::create(['id' => $lastPeriod['id'], 'is_active' => TRUE]);
+        if (!empty($checkPeriodContData['values'][0])) {
+          if ($checkPeriodContData['values'][0]['contribution_status'] == 'Completed') {
+            $checkPeriod->is_active = TRUE;
+            $checkPeriod->save();
+          }
+        }
       }
     }
+
 
     $firstActivatedPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getFirstActivePeriod($this->id);
     $lastActivatedPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastActivePeriod($this->id);
@@ -276,6 +300,7 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
 
       $newPeriodParams['end_date'] = $membershipEndDate;
 
+      // todo :  I think I should remove this status based code
       $membershipStatuses = CRM_Member_PseudoConstant::membershipStatus();
       $pendingStatusId = array_search('Pending', $membershipStatuses);
       $cancelledStatusId = array_search('Cancelled', $membershipStatuses);
@@ -312,7 +337,7 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
 
       $startOfFirstActivePeriod = new DateTime($firstActivatedPeriod['start_date']);
       $startOfFirstActivePeriod->sub(new DateInterval('P1D'));
-      $newPeriodParams['end_date'] = $startOfFirstActivePeriod->format('Y-m-d'); // todo : does not work, fix
+      $newPeriodParams['end_date'] = $startOfFirstActivePeriod->format('Y-m-d');
 
       $newPeriodParams['is_active'] = TRUE; // TODO : I don't think in this case the period can be inactive
 

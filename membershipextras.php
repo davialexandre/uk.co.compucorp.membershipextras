@@ -232,12 +232,20 @@ function membershipextras_civicrm_post($op, $objectName, $objectId, &$objectRef)
     $membershipPaymentPostHook->process();
   }
 
+  static $periodId = NULL;
+  if ($objectName == 'MembershipPeriod') {
+    $periodId = $objectId;
+  }
+
   if ($objectName == 'MembershipPayment') {
-    $membershipPaymentPostHook = new CRM_MembershipExtras_Hook_Post_MembershipPayment($op, $objectId, $objectRef);
+    $membershipPaymentPostHook = new CRM_MembershipExtras_Hook_Post_MembershipPayment($op, $objectId, $objectRef, $periodId);
     $membershipPaymentPostHook->postProcess();
   }
 
   if ($objectName == 'Contribution' && $op == 'edit') {
+    // this is done because the recur contrbution
+    // get added to the contribution at later stage that is not avabile while creating the period
+    // for the first time, so we fix this here
     if (!empty($objectRef->contribution_recur_id)) {
       $mPeriod = new CRM_MembershipExtras_BAO_MembershipPeriod();
       $mPeriod->entity_id = $objectRef->id;

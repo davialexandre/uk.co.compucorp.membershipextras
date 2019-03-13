@@ -47,6 +47,10 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
    */
   private $recurringContribution;
 
+  private static $paymentIds = [];
+
+  private $periodId;
+
   /**
    * CRM_MembershipExtras_Hook_Post_MembershipPayment constructor.
    *
@@ -54,10 +58,12 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
    * @param $objectId
    * @param \CRM_Member_DAO_MembershipPayment $objectRef
    */
-  public function __construct($operation, $objectId, CRM_Member_DAO_MembershipPayment $objectRef) {
+  public function __construct($operation, $objectId, CRM_Member_DAO_MembershipPayment $objectRef, $periodId) {
     $this->operation = $operation;
     $this->id = $objectId;
+    self::$paymentIds[] = $objectId;
     $this->membershipPayment = $objectRef;
+    $this->periodId = $periodId;
 
     $this->membership = civicrm_api3('Membership', 'getsingle', [
       'id' => $this->membershipPayment->membership_id,
@@ -80,6 +86,7 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
   public function postProcess() {
     if ($this->operation == 'create') {
       $this->fixRecurringLineItemMembershipReferences();
+      $this->createMissingPeriod();
       $this->linkPaymentToMembershipPeriod();
     }
   }
@@ -154,13 +161,97 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
     return [];
   }
 
+  private function createMissingPeriod() {
+    // todo : explain the purpose of this
+    // it was done since the membership payment hook might be called twice on payment creation
+    // so it ensure that the period did not get created twice
+    $counts = array_count_values(self::$paymentIds);
+    $hookCallCountsForId = $counts[$this->id];
+    if ($hookCallCountsForId > 1) {
+      return;
+    }
+
+    $contributionStatus = $this->contribution['contribution_status'];
+    if ($contributionStatus == 'Pending') {
+      if(!empty($this->recurringContribution) && empty($this->membership['contribution_recur_id'])) {
+        if ($this->periodId) {
+          $newPeriodParams['id'] = $this->periodId;
+          $newPeriodParams['is_active'] = FALSE;
+          CRM_MembershipExtras_BAO_MembershipPeriod::create($newPeriodParams);
+        } else {
+          $contributionsCount = civicrm_api3('Contribution', 'getcount', [
+            'contribution_recur_id' => $this->contribution['contribution_recur_id'],
+          ]);
+          $isFirstPPContribution = ($contributionsCount == 1);
+          if ($isFirstPPContribution) {
+            $this->createPendingMissingPeriod();
+          }
+        }
+      } else {
+        if ($this->periodId) {
+          $newPeriodParams['id'] = $this->periodId;
+          $newPeriodParams['is_active'] = FALSE;
+          CRM_MembershipExtras_BAO_MembershipPeriod::create($newPeriodParams);
+        } else {
+          $this->createPendingMissingPeriod();
+        }
+      }
+    }
+  }
+
+  private function createPendingMissingPeriod() {
+    $newPeriodParams = [];
+    $newPeriodParams['membership_id'] = $this->membershipPayment->membership_id;
+
+    $membershipId = $this->membershipPayment->membership_id;
+    $lastActivePeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastActivePeriod($membershipId);
+    if (!empty($lastActivePeriod['end_date'])) {
+      $today = new DateTime();
+      $endOfLastActivePeriod = new DateTime($lastActivePeriod['end_date']);
+      $endOfLastActivePeriod->add(new DateInterval('P1D'));
+      if ($endOfLastActivePeriod > $today) {
+        $newPeriodParams['start_date'] =  $endOfLastActivePeriod->format('Y-m-d');
+      } else {
+        $newPeriodParams['start_date'] = $today->format('Y-m-d');
+      }
+    } else {
+      $newPeriodParams['start_date'] = $this->membership['join_date'];
+    }
+
+    $membershipDetails = civicrm_api3('Membership', 'get', [
+      'sequential' => 1,
+      'return' => ['membership_type_id.duration_unit', 'membership_type_id.duration_interval'],
+      'id' => $membershipId,
+    ])['values'][0];
+    $currentStartDate = new DateTime($newPeriodParams['start_date']);
+    //todo: handle lifetime
+    switch ($membershipDetails['membership_type_id.duration_unit']) {
+      case 'month':
+        $interval = 'P' . $membershipDetails['membership_type_id.duration_interval'] . 'M';
+        break;
+      case 'day':
+        $interval = 'P' . $membershipDetails['membership_type_id.duration_interval'] .'D';
+        break;
+      case 'year':
+        $interval = 'P' . $membershipDetails['membership_type_id.duration_interval'] .'Y';
+        break;
+    }
+    $currentStartDate->add(new DateInterval($interval));
+    $currentStartDate->sub(new DateInterval('P1D'));
+    $newPeriodParams['end_date'] = $currentStartDate->format('Ymd');
+
+    $newPeriodParams['is_active'] = FALSE;
+
+    CRM_MembershipExtras_BAO_MembershipPeriod::create($newPeriodParams);
+  }
+
   private function linkPaymentToMembershipPeriod() {
     $membershipId = $this->membershipPayment->membership_id;
     $lastMembershipPeriod = CRM_MembershipExtras_BAO_MembershipPeriod::getLastPeriod($membershipId);
 
     if (empty($lastMembershipPeriod['entity_id'])) {
       if(!empty($this->recurringContribution)) {
-        // todo : only perform once for payment plan conts
+        // todo : only perform once for payment plan conts / for perfromace reasons but has not effect on records
         $periodNewParams = [
           'id' => $lastMembershipPeriod['id'],
           'payment_entity_table' => 'civicrm_contribution_recur',
