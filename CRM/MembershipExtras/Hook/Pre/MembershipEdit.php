@@ -205,12 +205,19 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
     }
 
     // done to activate the inactive period when recording a contribution
+    $contData = civicrm_api3('Contribution', 'get', [
+      'sequential' => 1,
+      'id' => $this->paymentContributionID,
+      'return' => ['contribution_recur_id'],
+    ])['values'][0];
+
     $checkPeriod = new CRM_MembershipExtras_DAO_MembershipPeriod();
-    $checkPeriodedate = date('Y-m-d', strtotime($membershipEndDate)) . ' 00:00:00';
     $checkPeriod->is_active = FALSE;
     $checkPeriod->membership_id = $this->id;
-    $checkPeriod->whereAdd('end_date = "' . $checkPeriodedate . '"');
-    $checkPeriod->whereAdd('entity_id IS NOT NULL');
+    $checkPeriod->entity_id = $this->paymentContributionID;
+    if (!empty($contData['contribution_recur_id'])) {
+      $checkPeriod->entity_id = $contData['contribution_recur_id'];
+    }
     $checkPeriod->orderBy('id desc');
     $checkPeriod->limit(1);
     if($checkPeriod->find(TRUE)) {
@@ -222,7 +229,6 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
         ])['values'][0];
         if ($checkPeriodContData['contribution_status'] == 'Completed') {
           $checkPeriod->is_active = TRUE;
-          $checkPeriod->save();
         }
       } elseif($checkPeriod->payment_entity_table == 'civicrm_contribution_recur') {
         $checkPeriodContData = civicrm_api3('Contribution', 'get', [
@@ -235,10 +241,28 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
         if (!empty($checkPeriodContData['values'][0])) {
           if ($checkPeriodContData['values'][0]['contribution_status'] == 'Completed') {
             $checkPeriod->is_active = TRUE;
-            $checkPeriod->save();
           }
         }
       }
+
+      // this fix the period start and end date if we are paying a pendign contribution
+      // where the start date of the membership is in the past and end date in future
+      if (!empty($this->params['start_date']) && !empty($this->params['end_date'])) {
+        $newStartDate = date('Ymd', strtotime($this->params['start_date']));
+        $oldStartDate = date('Ymd', strtotime($checkPeriod->start_date));
+
+        $newEndDate = date('Ymd', strtotime($this->params['end_date']));
+        $oldEndDate = date('Ymd', strtotime($checkPeriod->end_date));
+
+        if ($newStartDate > $oldStartDate && $newEndDate > $oldEndDate) {
+          $checkPeriod->start_date = $newStartDate;
+          $checkPeriod->end_date = $newEndDate;
+
+          $this->params['join_date'] = date('Y-m-d', strtotime($this->params['start_date']));
+          $membershipJoinDate = $newStartDate;
+        }
+      }
+      $checkPeriod->save();
     }
 
 
@@ -292,7 +316,7 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
         $renewalDate = $todayDate;
       }
 
-      if ($renewalDate > $endOfLastActivePeriodDate) {
+      if ($renewalDate > $endOfLastActivePeriodDate && $renewalDate < $membershipEndDate) {
         $newPeriodStartDate = $renewalDate;
       }
 

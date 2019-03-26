@@ -174,20 +174,23 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
     $contributionStatus = $this->contribution['contribution_status'];
     if ($contributionStatus == 'Pending') {
       if(!empty($this->recurringContribution) && empty($this->membership['contribution_recur_id'])) {
-        if ($this->periodId) {
-          $newPeriodParams['id'] = $this->periodId;
-          $newPeriodParams['is_active'] = FALSE;
-          CRM_MembershipExtras_BAO_MembershipPeriod::create($newPeriodParams);
-        } else {
-          $contributionsCount = civicrm_api3('Contribution', 'getcount', [
-            'contribution_recur_id' => $this->contribution['contribution_recur_id'],
-          ]);
-          $isFirstPPContribution = ($contributionsCount == 1);
-          if ($isFirstPPContribution) {
+        // todo : make it this more efficent for payment plans
+        $contributionsCount = civicrm_api3('Contribution', 'getcount', [
+          'contribution_recur_id' => $this->contribution['contribution_recur_id'],
+        ]);
+        $isFirstPPContribution = ($contributionsCount == 1);
+        if ($isFirstPPContribution) {
+          if ($this->periodId) {
+            $newPeriodParams['id'] = $this->periodId;
+            $newPeriodParams['is_active'] = FALSE;
+            CRM_MembershipExtras_BAO_MembershipPeriod::create($newPeriodParams);
+          } else {
             $this->createPendingMissingPeriod();
           }
         }
       } else {
+        // if the period is already created then just deactivate it since
+        // periods are active by default.
         if ($this->periodId) {
           $newPeriodParams['id'] = $this->periodId;
           $newPeriodParams['is_active'] = FALSE;

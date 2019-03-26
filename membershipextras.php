@@ -250,10 +250,13 @@ function membershipextras_civicrm_post($op, $objectName, $objectId, &$objectRef)
       $mPeriod = new CRM_MembershipExtras_BAO_MembershipPeriod();
       $mPeriod->entity_id = $objectRef->id;
       $mPeriod->payment_entity_table = 'civicrm_contribution';
-      if ($mPeriod->find(TRUE)) {
-        $mPeriod->entity_id = $objectRef->contribution_recur_id;
-        $mPeriod->payment_entity_table = 'civicrm_contribution_recur';
-        $mPeriod->save();
+      $mPeriod->find();
+      while($mPeriod->fetch()) {
+        $nMPeriod = new CRM_MembershipExtras_BAO_MembershipPeriod();
+        $nMPeriod->id = $mPeriod->id;
+        $nMPeriod->entity_id = $objectRef->contribution_recur_id;
+        $nMPeriod->payment_entity_table = 'civicrm_contribution_recur';
+        $nMPeriod->save();
       }
     }
   }

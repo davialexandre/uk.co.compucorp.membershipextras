@@ -212,6 +212,10 @@ class CRM_MembershipExtras_Hook_PostProcess_MembershipOfflineAutoRenewProcessor{
     $frequencyIntervalsList= [];
     $allMembershipTypeDetails = CRM_Member_BAO_Membership::buildMembershipTypeValues($this->form, array(), TRUE);
     $membershipsToBeCreatedTypes = $this->getMembershipFormProtectedPropertyValue('_memTypeSelected');
+    if (!$membershipsToBeCreatedTypes) {
+      // in renewal form there is _memType but no _memTypeSelected
+      $membershipsToBeCreatedTypes = [$this->getMembershipFormProtectedPropertyValue('_memType')];
+    }
     foreach($membershipsToBeCreatedTypes as $membershipTypeID) {
       $unitName = $allMembershipTypeDetails[$membershipTypeID]['duration_unit'];
       $frequencyUnitsList[] = $frequencyUnitOrderMap[$unitName];
@@ -259,10 +263,15 @@ class CRM_MembershipExtras_Hook_PostProcess_MembershipOfflineAutoRenewProcessor{
    * @return mixed
    */
   private function getMembershipFormProtectedPropertyValue($propertyName) {
-    $formReflection = new ReflectionObject($this->form);
-    $propertyReflection = $formReflection->getProperty($propertyName);
-    $propertyReflection->setAccessible(true);
-    return $propertyReflection->getValue($this->form);
+    try {
+      $formReflection = new ReflectionObject($this->form);
+      $propertyReflection = $formReflection->getProperty($propertyName);
+      $propertyReflection->setAccessible(true);
+      return $propertyReflection->getValue($this->form);
+    }
+    catch (ReflectionException $exception) {
+      return NULL;
+    }
   }
 
   /**
