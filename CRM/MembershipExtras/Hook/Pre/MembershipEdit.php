@@ -67,6 +67,10 @@ class CRM_MembershipExtras_Hook_Pre_MembershipEdit {
    */
   public function preventExtendingPaymentPlanMembership() {
     if ($this->isOfflineNonPendingPaymentPlanMembership()) {
+      if (!empty($this->params['join_date']) && !empty($this->params['start_date'])
+        && ($this->params['start_date'] > $this->params['end_date'])) {
+        $this->params['start_date'] = $this->params['join_date'];
+      }
       unset($this->params['end_date']);
     }
   }

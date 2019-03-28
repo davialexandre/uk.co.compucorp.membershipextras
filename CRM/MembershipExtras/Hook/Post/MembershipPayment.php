@@ -58,7 +58,7 @@ class CRM_MembershipExtras_Hook_Post_MembershipPayment {
    * @param $objectId
    * @param \CRM_Member_DAO_MembershipPayment $objectRef
    */
-  public function __construct($operation, $objectId, CRM_Member_DAO_MembershipPayment $objectRef, $periodId) {
+  public function __construct($operation, $objectId, CRM_Member_DAO_MembershipPayment $objectRef, $periodId = NULL) {
     $this->operation = $operation;
     $this->id = $objectId;
     self::$paymentIds[] = $objectId;

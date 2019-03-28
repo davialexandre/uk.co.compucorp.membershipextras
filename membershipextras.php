@@ -336,6 +336,17 @@ function membershipextras_civicrm_validateForm($formName, &$fields, &$files, &$f
       $paymentPlanValidateHook->validate();
     }
   }
+
+
+  if($formName === 'CRM_Member_Form_Task_Batch') {
+    //todo check for start date too and proper comparing
+    $params = $form->exportValues();
+    foreach ($params['field'] as $key => $value) {
+      if ($value['join_date'] != $value['membership_start_date']) {
+        $errors['field['.$key.'][join_date]'] = 'Wrong date error!';
+      }
+    }
+  }
 }
 
 /**
